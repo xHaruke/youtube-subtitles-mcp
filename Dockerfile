@@ -1,15 +1,18 @@
-# Use Alpine-based Node.js image for smaller size
-FROM node:18-alpine
+# Use Node.js LTS (currently 20) as base image
+FROM node:lts-slim
 
-# Install Python, pip, ffmpeg and build dependencies
-RUN apk add --no-cache \
+# Install Python, pip, and other system dependencies needed for yt-dlp
+RUN apt-get update && apt-get install -y \
     python3 \
-    py3-pip \
+    python3-pip \
+    python3-venv \
     ffmpeg \
-    build-base \
-    python3-dev \
-    && pip3 install --no-cache-dir --upgrade --break-system-packages yt-dlp \
-    && apk del build-base python3-dev
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install yt-dlp via pip with latest version
+RUN pip3 install --no-cache-dir --upgrade --break-system-packages yt-dlp
 
 # Verify yt-dlp installation
 RUN yt-dlp --version
@@ -33,8 +36,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Create non-root user for security
-RUN addgroup -g 1001 -S mcpuser && \
-    adduser -S mcpuser -u 1001 -G mcpuser && \
+RUN useradd -r -s /bin/false mcpuser && \
     chown -R mcpuser:mcpuser /app
 
 # Switch to non-root user
