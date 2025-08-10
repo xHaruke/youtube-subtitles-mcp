@@ -7,12 +7,12 @@
     "youtube-captions-mcp": "build/index.js"
   },
   "scripts": {
-    "build": "npx tsc",
+    "build": "tsc",
     "start": "node build/index.js",
     "test": "npx tsx src/test.ts",
     "dev": "npx tsx src/index.ts",
     "clean": "rm -rf build",
-    "prepublish": "npm run clean && npm run build",
+    "prebuild": "npm run clean",
     "server:inspect": "set DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run dev"
   },
   "dependencies": {

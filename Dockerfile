@@ -21,12 +21,10 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY tsconfig.json ./
 
 # Install Node.js dependencies
-RUN npm ci || (cat /root/.npm/_logs/*-debug-0.log && exit 1)
-
-# Copy TypeScript configuration
-COPY tsconfig.json ./
+RUN npm ci --only=production=false
 
 # Copy source code
 COPY src/ ./src/
@@ -34,8 +32,12 @@ COPY src/ ./src/
 # Build the TypeScript application
 RUN npm run build
 
-# Create non-root user for security
-RUN useradd -r -s /bin/false mcpuser && \
+# Clean up dev dependencies to reduce image size
+RUN npm ci --only=production && npm cache clean --force
+
+# Create non-root user for security (Alpine Linux style)
+RUN addgroup -g 1001 -S mcpuser && \
+    adduser -S -D -H -u 1001 -s /sbin/nologin -G mcpuser mcpuser && \
     chown -R mcpuser:mcpuser /app
 
 # Switch to non-root user
@@ -51,7 +53,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Set environment variables
 ENV NODE_ENV=production
 ENV DANGEROUSLY_OMIT_AUTH=false
-ENV PORT=3000
 
 # Start the application
 CMD ["npm", "start"]
