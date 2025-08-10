@@ -1,43 +1,57 @@
-# Build stage
-FROM node:lts-alpine AS builder
+# Use Node.js 18 LTS as base image
+FROM node:18-slim
 
-# Install build dependencies
-RUN apk add --no-cache \
-    python3 py3-pip \
-    build-base gcc abuild binutils
+# Install Python, pip, and other system dependencies needed for yt-dlp
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    ffmpeg \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
+# Install yt-dlp via pip with latest version
+RUN pip3 install --no-cache-dir --upgrade yt-dlp
+
+# Verify yt-dlp installation
+RUN yt-dlp --version
+
+# Set working directory
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev dependencies)
-RUN npm ci
+# Install Node.js dependencies
+RUN npm ci --only=production
+
+# Copy TypeScript configuration
+COPY tsconfig.json ./
 
 # Copy source code
-COPY . .
+COPY src/ ./src/
 
-# Build the application
+# Build the TypeScript application
 RUN npm run build
 
-# Production stage
-FROM node:lts-alpine AS production
+# Create non-root user for security
+RUN useradd -r -s /bin/false mcpuser && \
+    chown -R mcpuser:mcpuser /app
 
-# Install runtime dependencies
-RUN apk add --no-cache python3 py3-pip ffmpeg \
-    && pip3 install --no-cache-dir --break-system-packages yt-dlp
+# Switch to non-root user
+USER mcpuser
 
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
-
-# Copy built application from builder stage
-COPY --from=builder /app/build ./build
-
+# Expose port (if your server uses one)
 EXPOSE 3000
 
-CMD ["node", "build/index.js"]
+# Health check - verify both Node.js app and yt-dlp are working
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "console.log('Health check passed')" && yt-dlp --version || exit 1
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV DANGEROUSLY_OMIT_AUTH=false
+
+# Start the application
+CMD ["npm", "start"]

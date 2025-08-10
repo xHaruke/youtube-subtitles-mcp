@@ -6,7 +6,8 @@ import { fetchSubtitles } from "./scraper/yt-dlp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import cors from "cors";
-require("dotenv").config();
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
