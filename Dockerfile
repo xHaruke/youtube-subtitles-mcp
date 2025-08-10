@@ -6,13 +6,10 @@ RUN apk add --no-cache \
     python3 \
     py3-pip \
     ffmpeg \
-    gcc \
-    musl-dev \
+    build-base \
     python3-dev \
-    && python3 -m ensurepip \
-    && pip3 install --no-cache-dir --upgrade pip \
     && pip3 install --no-cache-dir --upgrade --break-system-packages yt-dlp \
-    && apk del gcc musl-dev python3-dev
+    && apk del build-base python3-dev
 
 # Verify yt-dlp installation
 RUN yt-dlp --version
