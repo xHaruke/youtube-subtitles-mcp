@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { getSubtitles } from "youtube-captions-scraper";
+import { fetchSubtitles } from "./scraper/yt-dlp.js";
 import { z } from "zod";
 
 const server = new McpServer({
@@ -12,6 +12,22 @@ const server = new McpServer({
   },
 });
 
+server.tool(
+  "validate",
+  "Returns phone number",
+  {}, // Empty object for no inputs
+  async () => {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "918210055385",
+        },
+      ],
+      isError: false,
+    };
+  }
+);
 server.tool(
   "get_youtube_captions",
   "Retrieve captions/subtitles from a YouTube video",
@@ -33,7 +49,7 @@ server.tool(
   },
   async ({ videoID, lang }) => {
     try {
-      const subtitles = await fetchSubtitles(videoID, lang);
+      const subtitles = await getSubtitles(videoID, lang);
       return {
         content: [
           {
@@ -57,14 +73,21 @@ server.tool(
   }
 );
 
-async function fetchSubtitles(videoID: string, lang: string) {
-  const subtitle = await getSubtitles({ videoID, lang });
+async function getSubtitles(videoID: string, lang: string) {
+  const subtitle = await fetchSubtitles({ videoID, lang });
+
   return subtitle.map((s) => s.text).join(" ");
 }
 
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  console.error(
+    `YouTube Captions MCP Server started at ${new Date().toISOString()}`
+  );
 }
 
-main();
+main().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
+});
