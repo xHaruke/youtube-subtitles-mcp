@@ -2,14 +2,13 @@
 FROM node:lts-alpine
 
 # Install Python, pip, and other system dependencies needed for yt-dlp
-RUN apt-get update && apt-get install -y \
+RUN apk update && apk add --no-cache \
     python3 \
-    python3-pip \
-    python3-venv \
+    py3-pip \
+    python3-dev \
     ffmpeg \
     curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates
 
 # Install yt-dlp via pip with latest version
 RUN pip3 install --no-cache-dir --upgrade --break-system-packages yt-dlp
