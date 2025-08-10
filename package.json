@@ -1,0 +1,43 @@
+{
+  "name": "youtube-captions-mcp-server",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "youtube-captions-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "npx tsc",
+    "start": "node build/index.js",
+    "dev": "npx tsx src/index.ts",
+    "clean": "rm -rf build",
+    "prepublish": "npm run clean && npm run build",
+    "server:inspect": "set DANGEROUSLY_OMIT_AUTH=true && npx @modelcontextprotocol/inspector npm run dev"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.2",
+    "youtube-captions-scraper": "^2.0.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.16.2",
+    "@types/node": "^24.2.1",
+    "@types/youtube-captions-scraper": "^1.0.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "youtube",
+    "captions",
+    "subtitles",
+    "typescript"
+  ],
+  "author": "Aman Sinha",
+  "license": "MIT",
+  "description": "MCP server for retrieving YouTube video captions and subtitles",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
