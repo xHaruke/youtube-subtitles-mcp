@@ -1,5 +1,5 @@
 # Use Node.js LTS (currently 20) as base image
-FROM node:lts-slim
+FROM node:lts-alpine
 
 # Install Python, pip, and other system dependencies needed for yt-dlp
 RUN apt-get update && apt-get install -y \
@@ -24,7 +24,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install Node.js dependencies
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy TypeScript configuration
 COPY tsconfig.json ./
