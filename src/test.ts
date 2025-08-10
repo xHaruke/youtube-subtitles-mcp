@@ -9,4 +9,4 @@ async function getSubtitles(videoID: string, lang: string) {
   // .map((s) => s.text).join(" ");
 }
 
-await getSubtitles("uHAx_2bn1kU", "en");
+await getSubtitles("E3shmY6ioS4", "hi");
