@@ -1,9 +1,12 @@
-import express from "express";
-import { randomUUID } from "node:crypto";
+import express, { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { fetchSubtitles } from "./scraper/yt-dlp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolResult,
+  GetPromptResult,
+  ReadResourceResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -12,147 +15,144 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json());
+
 // Add CORS middleware before your MCP routes
 app.use(
   cors({
-    origin: "*", // Configure appropriately for production, for example:
-    // origin: ['https://your-remote-domain.com', 'https://your-other-remote-domain.com'],
+    origin: "*", // Allow all origins - adjust as needed for production
     exposedHeaders: ["Mcp-Session-Id"],
-    allowedHeaders: ["Content-Type", "mcp-session-id"],
   })
 );
 
-app.use(express.json());
+const getServer = () => {
+  const server = new McpServer({
+    name: "youtube_subtitles",
+    version: "0.0.2",
+    capabilities: {
+      resources: {},
+      tools: {},
+    },
+  });
 
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+  // ... set up server resources, tools, and prompts ...
+  server.tool(
+    "validate",
+    "Validated this mcp server to be used by PuchAI",
+    {},
+    async (): Promise<CallToolResult> => ({
+      content: [{ text: String(process.env.PHONE_NUMBER), type: "text" }],
+    })
+  );
 
-// Handle POST requests for client-to-server communication
-app.post("/mcp", async (req, res) => {
-  // Check for existing session ID
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  let transport: StreamableHTTPServerTransport;
-
-  if (sessionId && transports[sessionId]) {
-    // Reuse existing transport
-    transport = transports[sessionId];
-  } else if (!sessionId && isInitializeRequest(req.body)) {
-    // New initialization request
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (sessionId) => {
-        // Store the transport by session ID
-        transports[sessionId] = transport;
-      },
-      // DNS rebinding protection is disabled by default for backwards compatibility. If you are running this server
-      // locally, make sure to set:
-      // enableDnsRebindingProtection: true,
-      // allowedHosts: ['127.0.0.1'],
-    });
-
-    // Clean up transport when closed
-    transport.onclose = () => {
-      if (transport.sessionId) {
-        delete transports[transport.sessionId];
+  server.tool(
+    "get_youtube_captions",
+    "Retrieve captions/subtitles from a YouTube video",
+    {
+      videoID: z
+        .string()
+        .length(11, "Video ID is required")
+        .describe("Video ID for the YouTube video e.g 'xvFZjo5PgG0'"),
+      lang: z.string().length(2).optional().default("en"),
+    },
+    {
+      title: "Get YouTube Captions/Subtitles",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    async ({ videoID, lang }): Promise<CallToolResult> => {
+      try {
+        const subtitles = await getSubtitles(videoID, lang);
+        return {
+          content: [{ type: "text", text: subtitles }],
+          isError: false,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Error: ${error}` }],
+          isError: true,
+        };
       }
-    };
-    const server = new McpServer({
-      name: "youtube_subtitles",
-      version: "0.0.1",
-      capabilities: {
-        resources: {},
-        tools: {},
-      },
-    });
+    }
+  );
+  return server;
+};
 
-    // ... set up server resources, tools, and prompts ...
-    server.tool(
-      "validate",
-      "Validated this mcp server to be used by PuchAI",
-      {},
-      async () => ({
-        content: [{ text: String(process.env.PHONE_NUMBER), type: "text" }],
-      })
-    );
-
-    server.tool(
-      "get_youtube_captions",
-      "Retrieve captions/subtitles from a YouTube video",
-      {
-        videoID: z
-          .string()
-          .length(11, "Video ID is required")
-          .describe("Video ID for the YouTube video e.g 'xvFZjo5PgG0'"),
-        lang: z.string().length(2).optional().default("en"),
-      },
-      {
-        title: "Get YouTube Captions/Subtitles",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-      async ({ videoID, lang }) => {
-        try {
-          const subtitles = await getSubtitles(videoID, lang);
-          return {
-            content: [{ type: "text", text: subtitles }],
-            isError: false,
-          };
-        } catch (error) {
-          return {
-            content: [{ type: "text", text: `Error: ${error}` }],
-            isError: true,
-          };
-        }
-      }
-    );
-
-    // Connect to the MCP server
+app.post("/mcp", async (req: Request, res: Response) => {
+  const server = getServer();
+  try {
+    const transport: StreamableHTTPServerTransport =
+      new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
     await server.connect(transport);
-  } else {
-    // Invalid request
-    res.status(400).json({
+    await transport.handleRequest(req, res, req.body);
+    res.on("close", () => {
+      console.log("Request closed");
+      transport.close();
+      server.close();
+    });
+  } catch (error) {
+    console.error("Error handling MCP request:", error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32603,
+          message: "Internal server error",
+        },
+        id: null,
+      });
+    }
+  }
+});
+
+app.get("/mcp", async (req: Request, res: Response) => {
+  console.log("Received GET MCP request");
+  res.writeHead(405).end(
+    JSON.stringify({
       jsonrpc: "2.0",
       error: {
         code: -32000,
-        message: "Bad Request: No valid session ID provided",
+        message: "Method not allowed.",
       },
       id: null,
-    });
-    return;
-  }
-
-  // Handle the request
-  await transport.handleRequest(req, res, req.body);
+    })
+  );
 });
 
-// Reusable handler for GET and DELETE requests
-const handleSessionRequest = async (
-  req: express.Request,
-  res: express.Response
-) => {
-  const sessionId = req.headers["mcp-session-id"] as string | undefined;
-  if (!sessionId || !transports[sessionId]) {
-    res.status(400).send("Invalid or missing session ID");
-    return;
+app.delete("/mcp", async (req: Request, res: Response) => {
+  console.log("Received DELETE MCP request");
+  res.writeHead(405).end(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method not allowed.",
+      },
+      id: null,
+    })
+  );
+});
+
+//////////////////////////////////
+
+app.listen(PORT, (error) => {
+  if (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
   }
-
-  const transport = transports[sessionId];
-  await transport.handleRequest(req, res);
-};
-
-// Handle GET requests for server-to-client notifications via SSE
-app.get("/mcp", handleSessionRequest);
-
-// Handle DELETE requests for session termination
-app.delete("/mcp", handleSessionRequest);
-
-app.listen(3000, function (err) {
-  if (err) console.log("Error in server setup");
-  console.log("Server listening on Port", PORT);
+  console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
 });
 
 async function getSubtitles(videoID: string, lang: string) {
   const subtitle = await fetchSubtitles(videoID, lang);
   return subtitle.map((s) => s.text).join(" ");
 }
+
+process.on("SIGINT", async () => {
+  console.log("Shutting down server...");
+  process.exit(0);
+});
