@@ -23,7 +23,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install Node.js dependencies
-RUN npm install
+RUN npm ci || (cat /root/.npm/_logs/*-debug-0.log && exit 1)
 
 # Copy TypeScript configuration
 COPY tsconfig.json ./
