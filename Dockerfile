@@ -1,18 +1,18 @@
-# Use Node.js 18 LTS as base image
-FROM node:18-slim
+# Use Alpine-based Node.js image for smaller size
+FROM node:18-alpine
 
-# Install Python, pip, and other system dependencies needed for yt-dlp
-RUN apt-get update && apt-get install -y \
+# Install Python, pip, ffmpeg and build dependencies
+RUN apk add --no-cache \
     python3 \
-    python3-pip \
-    python3-venv \
+    py3-pip \
     ffmpeg \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install yt-dlp via pip with latest version
-RUN pip3 install --no-cache-dir --upgrade yt-dlp
+    gcc \
+    musl-dev \
+    python3-dev \
+    && python3 -m ensurepip \
+    && pip3 install --no-cache-dir --upgrade pip \
+    && pip3 install --no-cache-dir --upgrade yt-dlp \
+    && apk del gcc musl-dev python3-dev
 
 # Verify yt-dlp installation
 RUN yt-dlp --version
@@ -36,13 +36,14 @@ COPY src/ ./src/
 RUN npm run build
 
 # Create non-root user for security
-RUN useradd -r -s /bin/false mcpuser && \
+RUN addgroup -g 1001 -S mcpuser && \
+    adduser -S mcpuser -u 1001 -G mcpuser && \
     chown -R mcpuser:mcpuser /app
 
 # Switch to non-root user
 USER mcpuser
 
-# Expose port (if your server uses one)
+# Expose port
 EXPOSE 3000
 
 # Health check - verify both Node.js app and yt-dlp are working
@@ -52,6 +53,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Set environment variables
 ENV NODE_ENV=production
 ENV DANGEROUSLY_OMIT_AUTH=false
+ENV PORT=3000
 
 # Start the application
 CMD ["npm", "start"]
