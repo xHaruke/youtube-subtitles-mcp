@@ -11,7 +11,7 @@ RUN apk add --no-cache \
     python3-dev \
     && python3 -m ensurepip \
     && pip3 install --no-cache-dir --upgrade pip \
-    && pip3 install --no-cache-dir --upgrade yt-dlp \
+    && pip3 install --no-cache-dir --upgrade --break-system-packages yt-dlp \
     && apk del gcc musl-dev python3-dev
 
 # Verify yt-dlp installation
