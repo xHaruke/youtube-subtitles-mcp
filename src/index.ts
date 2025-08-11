@@ -47,7 +47,7 @@ const getServer = () => {
 
   server.tool(
     "summarize_youtube_video",
-    "Retrieve captions/subtitles from a YouTube video and then summarize it.",
+    "Extract and analyze YouTube video content by retrieving captions/subtitles. Use this tool whenever a user provides a YouTube URL or asks about YouTube video content - including summaries, key points, quotes, timestamps, topics discussed, or any questions about what's said in a video.",
     {
       videoID: z
         .string()
