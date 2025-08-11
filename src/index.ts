@@ -148,6 +148,10 @@ app.delete("/mcp", async (req: Request, res: Response) => {
   );
 });
 
+app.get("/health", (req, res) => {
+  res.status(200).send("Server is running!");
+});
+
 //////////////////////////////////
 
 app.listen(PORT, (error) => {
