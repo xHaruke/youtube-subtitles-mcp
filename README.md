@@ -30,7 +30,7 @@ Create a `.env` file in the root directory with the following optional variables
 
 ```env
 PORT=3000
-COOKIES_URL=https://static.staticsave.com/cookies/cookies.txt
+COOKIES_URL=https://url/path/to/cookies.txt
 ```
 
 ### Environment Variables
