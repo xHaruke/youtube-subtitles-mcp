@@ -28,7 +28,7 @@ app.use(
 const getServer = () => {
   const server = new McpServer({
     name: "youtube_subtitles",
-    version: "0.0.2",
+    version: "0.1.0",
     capabilities: {
       resources: {},
       tools: {},
@@ -46,14 +46,20 @@ const getServer = () => {
   );
 
   server.tool(
-    "get_youtube_captions",
-    "Retrieve captions/subtitles from a YouTube video",
+    "summarize_youtube_video",
+    "Retrieve captions/subtitles from a YouTube video and then summarize it.",
     {
       videoID: z
         .string()
         .length(11, "Video ID is required")
         .describe("Video ID for the YouTube video e.g 'xvFZjo5PgG0'"),
-      lang: z.string().length(2).optional().default("en"),
+      lang: z
+        .string()
+        .length(2)
+        .optional()
+        .describe(
+          "ISO 639-1 language codes e.g. en, hi. When left empty, it will use the default language of the video"
+        ),
     },
     {
       title: "Get YouTube Captions/Subtitles",
@@ -64,7 +70,10 @@ const getServer = () => {
     },
     async ({ videoID, lang }): Promise<CallToolResult> => {
       try {
-        const subtitles = await getSubtitles(videoID, lang);
+        const subtitles = lang
+          ? await getSubtitles(videoID, lang)
+          : await getSubtitles(videoID);
+
         return {
           content: [{ type: "text", text: subtitles }],
           isError: false,
@@ -147,8 +156,12 @@ app.listen(PORT, (error) => {
   console.log(`MCP Stateless Streamable HTTP Server listening on port ${PORT}`);
 });
 
-async function getSubtitles(videoID: string, lang: string) {
-  const subtitle = await fetchSubtitles(videoID, lang);
+async function getSubtitles(videoID: string, lang?: string) {
+  const subtitle = await fetchSubtitles({
+    videoId: videoID,
+    language: lang,
+    cookiesUrl: process.env.COOKIES_URL,
+  });
   return subtitle.map((s) => s.text).join(" ");
 }
 

@@ -19,8 +19,10 @@ export interface Subtitle {
  * Options for fetching subtitles
  */
 export interface FetchSubtitlesOptions {
+  videoId: string;
   language?: string;
   timeout?: number;
+  cookiesUrl?: string;
 }
 
 /**
@@ -38,241 +40,109 @@ export class SubtitleError extends Error {
 }
 
 /**
- * Options for fetching subtitles (object-style parameters)
+ * Download cookies from a URL and save to a temporary file
  */
-export interface FetchSubtitlesParams {
-  videoID: string;
-  lang?: string;
-  timeout?: number;
+async function downloadCookiesFile(
+  cookiesUrl: string,
+  tempDir: string
+): Promise<string | null> {
+  try {
+    const https = await import("https");
+    const http = await import("http");
+
+    const cookiesPath = path.join(tempDir, "cookies.txt");
+
+    return new Promise((resolve, reject) => {
+      const client = cookiesUrl.startsWith("https:") ? https : http;
+
+      client
+        .get(cookiesUrl, (response) => {
+          if (response.statusCode !== 200) {
+            reject(
+              new Error(`Failed to fetch cookies: HTTP ${response.statusCode}`)
+            );
+            return;
+          }
+
+          const writeStream = require("fs").createWriteStream(cookiesPath);
+          response.pipe(writeStream);
+
+          writeStream.on("finish", () => resolve(cookiesPath));
+          writeStream.on("error", reject);
+        })
+        .on("error", reject);
+    });
+  } catch (error) {
+    console.warn(`Failed to download cookies from ${cookiesUrl}:`, error);
+    return null;
+  }
 }
 
 /**
- * Fetch subtitles from YouTube using yt-dlp (object-style parameters)
- * @param params - Object containing videoID, lang, and options
- * @returns Promise<Subtitle[]> Array of subtitle objects with text, start, and duration
+ * Try to download subtitles by attempting common languages
  */
-export async function fetchSubtitles(
-  params: FetchSubtitlesParams
-): Promise<Subtitle[]>;
-
-/**
- * Fetch subtitles from YouTube using yt-dlp (separate parameters)
- * @param videoId - YouTube video ID
- * @param languageCode - Language code (default: 'en')
- * @param options - Additional options
- * @returns Promise<Subtitle[]> Array of subtitle objects with text, start, and duration
- */
-export async function fetchSubtitles(
+async function downloadAnyAvailableSubtitles(
   videoId: string,
-  languageCode?: string,
-  options?: FetchSubtitlesOptions
-): Promise<Subtitle[]>;
+  tempDir: string,
+  outputTemplate: string,
+  timeout: number,
+  cookiesPath?: string
+): Promise<string[]> {
+  const commonLanguages = [
+    "en",
+    "hi",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "pt",
+    "ru",
+    "ja",
+    "ko",
+    "zh",
+    "ar",
+  ];
 
-/**
- * Implementation of fetchSubtitles with overloads
- */
-export async function fetchSubtitles(
-  paramsOrVideoId: FetchSubtitlesParams | string,
-  languageCode: string = "en",
-  options: FetchSubtitlesOptions = {}
-): Promise<Subtitle[]> {
-  let videoId: string;
-  let lang: string;
-  let opts: FetchSubtitlesOptions;
-
-  // Handle object-style parameters
-  if (typeof paramsOrVideoId === "object") {
-    videoId = paramsOrVideoId.videoID;
-    lang = paramsOrVideoId.lang || "en";
-    opts = {
-      timeout: paramsOrVideoId.timeout || options.timeout,
-    };
-  } else {
-    // Handle separate parameters
-    videoId = paramsOrVideoId;
-    lang = languageCode;
-    opts = options;
-  }
-  // Input validation
-  if (!videoId || typeof videoId !== "string") {
-    throw new SubtitleError(
-      "Video ID is required and must be a string",
-      videoId
-    );
-  }
-
-  if (typeof lang !== "string") {
-    throw new SubtitleError("Language code must be a string", videoId, lang);
-  }
-
-  const timeout = opts.timeout || 30000; // 30 seconds default
-
-  // Create unique temp directory
-  const tempDir = path.join(
-    os.tmpdir(),
-    `yt-subs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-  );
-  const outputTemplate = path.join(tempDir, `${videoId}.%(ext)s`);
-
-  try {
-    // Create temp directory
-    await fs.mkdir(tempDir, { recursive: true });
-
-    // Check if yt-dlp is available
+  for (const lang of commonLanguages) {
     try {
-      await execAsync("yt-dlp --version");
-    } catch (error) {
-      throw new SubtitleError(
-        "yt-dlp is not installed. Please install it from https://github.com/yt-dlp/yt-dlp#installation",
-        videoId,
-        languageCode
-      );
-    }
+      const command = [
+        "yt-dlp",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-lang",
+        lang,
+        "--skip-download",
+        "--no-warnings",
+        cookiesPath ? `--cookies "${cookiesPath}"` : "",
+        "--output",
+        `"${outputTemplate}"`,
+        `"https://www.youtube.com/watch?v=${videoId}"`,
+      ]
+        .filter(Boolean)
+        .join(" ");
 
-    // Download subtitles using yt-dlp
-    const command = [
-      "yt-dlp",
-      "--write-subs",
-      "--write-auto-subs",
-      "--sub-lang",
-      languageCode,
-      "--skip-download",
-      "--no-warnings",
-      "--output",
-      `"${outputTemplate}"`,
-      `"https://www.youtube.com/watch?v=${videoId}"`,
-    ].join(" ");
+      await execAsync(command, { timeout, maxBuffer: 1024 * 1024 * 10 });
 
-    const { stdout, stderr } = await execAsync(command, {
-      timeout,
-      maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-    });
-
-    // Check for common error patterns in stderr
-    if (
-      stderr.includes("Private video") ||
-      stderr.includes("Video unavailable")
-    ) {
-      throw new SubtitleError(
-        `Video ${videoId} is private or unavailable`,
-        videoId,
-        languageCode
-      );
-    }
-
-    if (stderr.includes("No such file or directory")) {
-      throw new SubtitleError(
-        "yt-dlp command not found. Please install yt-dlp",
-        videoId,
-        languageCode
-      );
-    }
-
-    // Find subtitle files
-    const files = await fs.readdir(tempDir);
-    const subtitleFiles = files.filter(
-      (file) =>
-        file.startsWith(videoId) &&
-        (file.endsWith(".vtt") || file.endsWith(".srt"))
-    );
-
-    if (subtitleFiles.length === 0) {
-      // Try to find auto-generated subtitles or other language variants
-      const anySubFiles = files.filter(
-        (file) => file.endsWith(".vtt") || file.endsWith(".srt")
+      const files = await fs.readdir(tempDir);
+      const subtitleFiles = files.filter(
+        (file) =>
+          file.startsWith(videoId) &&
+          (file.endsWith(".vtt") || file.endsWith(".srt"))
       );
 
-      if (anySubFiles.length === 0) {
-        throw new SubtitleError(
-          `No subtitles found for video ${videoId}. This video may not have subtitles available.`,
-          videoId,
-          languageCode
-        );
-      } else {
-        throw new SubtitleError(
-          `No subtitles found for language '${languageCode}' for video ${videoId}. Available subtitle files: ${anySubFiles.join(
-            ", "
-          )}`,
-          videoId,
-          languageCode
-        );
+      if (subtitleFiles.length > 0) {
+        return subtitleFiles;
       }
-    }
-
-    // Use the first available subtitle file
-    const subtitleFile = subtitleFiles[0];
-    const subtitlePath = path.join(tempDir, subtitleFile);
-
-    // Read subtitle content
-    const content = await fs.readFile(subtitlePath, "utf8");
-
-    // Parse based on file extension
-    let subtitles: Subtitle[];
-    if (subtitleFile.endsWith(".vtt")) {
-      subtitles = parseVTT(content);
-    } else if (subtitleFile.endsWith(".srt")) {
-      subtitles = parseSRT(content);
-    } else {
-      throw new SubtitleError(
-        `Unsupported subtitle format: ${path.extname(subtitleFile)}`,
-        videoId,
-        languageCode
-      );
-    }
-
-    if (subtitles.length === 0) {
-      throw new SubtitleError(
-        `Subtitle file is empty or could not be parsed for video ${videoId}`,
-        videoId,
-        languageCode
-      );
-    }
-
-    return subtitles;
-  } catch (error: any) {
-    // Re-throw SubtitleError instances as-is
-    if (error instanceof SubtitleError) {
-      throw error;
-    }
-
-    // Handle exec errors
-    if (error.code === "ENOENT") {
-      throw new SubtitleError(
-        "yt-dlp command not found. Please install yt-dlp from https://github.com/yt-dlp/yt-dlp#installation",
-        videoId,
-        languageCode
-      );
-    }
-
-    if (error.signal === "SIGTERM" || error.killed) {
-      throw new SubtitleError(
-        `Subtitle download timed out for video ${videoId}`,
-        videoId,
-        languageCode
-      );
-    }
-
-    // Generic error
-    throw new SubtitleError(
-      `Failed to fetch subtitles for video ${videoId}: ${error.message}`,
-      videoId,
-      languageCode
-    );
-  } finally {
-    // Clean up temp directory
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch (cleanupError) {
-      // Ignore cleanup errors
-      console.warn(`Warning: Could not clean up temp directory ${tempDir}`);
+    } catch (error) {
+      continue;
     }
   }
+
+  return [];
 }
 
 /**
  * Parse VTT (WebVTT) subtitle format
- * @param vttContent - VTT file content
- * @returns Parsed subtitles
  */
 function parseVTT(vttContent: string): Subtitle[] {
   const lines = vttContent.split("\n").map((line) => line.trim());
@@ -280,20 +150,14 @@ function parseVTT(vttContent: string): Subtitle[] {
   let currentSubtitle: { start: number; end: number; text: string } | null =
     null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (const line of lines) {
+    if (line.startsWith("WEBVTT") || line === "") continue;
 
-    // Skip WEBVTT header and empty lines
-    if (line.startsWith("WEBVTT") || line === "") {
-      continue;
-    }
-
-    // Check for timestamp line
     const timeMatch = line.match(
       /^(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})/
     );
+
     if (timeMatch) {
-      // Save previous subtitle if exists
       if (currentSubtitle && currentSubtitle.text.trim()) {
         subtitles.push({
           text: cleanSubtitleText(currentSubtitle.text.trim()),
@@ -302,19 +166,16 @@ function parseVTT(vttContent: string): Subtitle[] {
         });
       }
 
-      // Start new subtitle
       currentSubtitle = {
         start: timeToSeconds(timeMatch[1]),
         end: timeToSeconds(timeMatch[2]),
         text: "",
       };
     } else if (currentSubtitle && line && !line.includes("-->")) {
-      // Add text line to current subtitle
       currentSubtitle.text += (currentSubtitle.text ? " " : "") + line;
     }
   }
 
-  // Don't forget the last subtitle
   if (currentSubtitle && currentSubtitle.text.trim()) {
     subtitles.push({
       text: cleanSubtitleText(currentSubtitle.text.trim()),
@@ -323,14 +184,11 @@ function parseVTT(vttContent: string): Subtitle[] {
     });
   }
 
-  // Remove duplicates and very short durations
   return deduplicateAndFilter(subtitles);
 }
 
 /**
  * Parse SRT subtitle format
- * @param srtContent - SRT file content
- * @returns Parsed subtitles
  */
 function parseSRT(srtContent: string): Subtitle[] {
   const blocks = srtContent.trim().split("\n\n");
@@ -340,7 +198,6 @@ function parseSRT(srtContent: string): Subtitle[] {
     const lines = block.split("\n");
     if (lines.length < 3) continue;
 
-    // Skip sequence number (first line)
     const timeLine = lines[1];
     const textLines = lines.slice(2);
 
@@ -366,58 +223,39 @@ function parseSRT(srtContent: string): Subtitle[] {
 }
 
 /**
- * Clean subtitle text by removing HTML-like tags and formatting
- * @param text - Raw subtitle text
- * @returns Cleaned text
+ * Clean subtitle text by removing tags and formatting
  */
 function cleanSubtitleText(text: string): string {
-  return (
-    text
-      // Remove WebVTT timestamp tags like <00:01:23.119>
-      .replace(/<\d{2}:\d{2}:\d{2}\.\d{3}>/g, "")
-      // Remove WebVTT voice/color tags like <c> and </c>
-      .replace(/<\/?[c|v].*?>/g, "")
-      // Remove other HTML-like tags
-      .replace(/<[^>]*>/g, "")
-      // Clean up multiple spaces
-      .replace(/\s+/g, " ")
-      // Trim whitespace
-      .trim()
-  );
+  return text
+    .replace(/<\d{2}:\d{2}:\d{2}\.\d{3}>/g, "") // Remove timestamp tags
+    .replace(/<\/?[c|v].*?>/g, "") // Remove voice/color tags
+    .replace(/<[^>]*>/g, "") // Remove other HTML tags
+    .replace(/\s+/g, " ") // Clean up spaces
+    .trim();
 }
 
 /**
  * Remove duplicate subtitles and filter out very short ones
- * @param subtitles - Raw subtitle array
- * @returns Cleaned subtitle array
  */
 function deduplicateAndFilter(subtitles: Subtitle[]): Subtitle[] {
   const seen = new Set<string>();
   const filtered: Subtitle[] = [];
 
   for (const subtitle of subtitles) {
-    // Skip very short durations (likely duplicates)
-    if (subtitle.duration < 0.1) {
-      continue;
-    }
+    if (subtitle.duration < 0.1) continue;
 
-    // Create a key for deduplication based on text and approximate timing
     const key = `${subtitle.text}_${Math.floor(subtitle.start * 10)}`;
-
     if (!seen.has(key)) {
       seen.add(key);
       filtered.push(subtitle);
     }
   }
 
-  // Sort by start time
   return filtered.sort((a, b) => a.start - b.start);
 }
 
 /**
  * Convert time string to seconds
- * @param timeString - Time in format HH:MM:SS.mmm
- * @returns Time in seconds
  */
 function timeToSeconds(timeString: string): number {
   const parts = timeString.split(":");
@@ -432,5 +270,188 @@ function timeToSeconds(timeString: string): number {
   return hours * 3600 + minutes * 60 + seconds;
 }
 
-// Default export for CommonJS compatibility
-export default fetchSubtitles;
+/**
+ * Fetch subtitles from YouTube using yt-dlp
+ * @param options - Configuration object with videoId, language, timeout, and cookiesUrl
+ * @returns Promise<Subtitle[]> Array of subtitle objects with text, start, and duration
+ */
+export async function fetchSubtitles(
+  options: FetchSubtitlesOptions
+): Promise<Subtitle[]> {
+  const { videoId, language, timeout = 30000, cookiesUrl } = options;
+
+  if (!videoId || typeof videoId !== "string") {
+    throw new SubtitleError(
+      "Video ID is required and must be a string",
+      videoId
+    );
+  }
+
+  if (language && typeof language !== "string") {
+    throw new SubtitleError(
+      "Language code must be a string",
+      videoId,
+      language
+    );
+  }
+
+  const tempDir = path.join(
+    os.tmpdir(),
+    `yt-subs-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  );
+  const outputTemplate = path.join(tempDir, `${videoId}.%(ext)s`);
+
+  try {
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // Download cookies if URL provided
+    let cookiesPath: string | null = null;
+    if (cookiesUrl) {
+      cookiesPath = await downloadCookiesFile(cookiesUrl, tempDir);
+      if (!cookiesPath) {
+        console.warn(
+          `Failed to download cookies from ${cookiesUrl}, continuing without cookies`
+        );
+      }
+    }
+
+    // Check if yt-dlp is available
+    try {
+      await execAsync("yt-dlp --version");
+    } catch (error) {
+      throw new SubtitleError(
+        "yt-dlp is not installed. Please install it from https://github.com/yt-dlp/yt-dlp#installation",
+        videoId,
+        language
+      );
+    }
+
+    let subtitleFiles: string[] = [];
+
+    // Try specific language if provided
+    if (language) {
+      const command = [
+        "yt-dlp",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-lang",
+        language,
+        "--skip-download",
+        "--no-warnings",
+        cookiesPath ? `--cookies "${cookiesPath}"` : "",
+        "--output",
+        `"${outputTemplate}"`,
+        `"https://www.youtube.com/watch?v=${videoId}"`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      try {
+        const { stderr } = await execAsync(command, {
+          timeout,
+          maxBuffer: 1024 * 1024 * 10,
+        });
+
+        if (
+          stderr.includes("Private video") ||
+          stderr.includes("Video unavailable")
+        ) {
+          throw new SubtitleError(
+            `Video ${videoId} is private or unavailable`,
+            videoId,
+            language
+          );
+        }
+
+        const files = await fs.readdir(tempDir);
+        subtitleFiles = files.filter(
+          (file) =>
+            file.startsWith(videoId) &&
+            (file.endsWith(".vtt") || file.endsWith(".srt"))
+        );
+      } catch (error: any) {
+        subtitleFiles = [];
+      }
+    }
+
+    // If no specific language or it failed, try any available language
+    if (subtitleFiles.length === 0) {
+      subtitleFiles = await downloadAnyAvailableSubtitles(
+        videoId,
+        tempDir,
+        outputTemplate,
+        timeout,
+        cookiesPath || undefined
+      );
+    }
+
+    if (subtitleFiles.length === 0) {
+      throw new SubtitleError(
+        `No subtitles found for video ${videoId}. This video may not have subtitles available.`,
+        videoId,
+        language
+      );
+    }
+
+    // Read and parse the first available subtitle file
+    const subtitleFile = subtitleFiles[0];
+    const subtitlePath = path.join(tempDir, subtitleFile);
+    const content = await fs.readFile(subtitlePath, "utf8");
+
+    let subtitles: Subtitle[];
+    if (subtitleFile.endsWith(".vtt")) {
+      subtitles = parseVTT(content);
+    } else if (subtitleFile.endsWith(".srt")) {
+      subtitles = parseSRT(content);
+    } else {
+      throw new SubtitleError(
+        `Unsupported subtitle format: ${path.extname(subtitleFile)}`,
+        videoId,
+        language
+      );
+    }
+
+    if (subtitles.length === 0) {
+      throw new SubtitleError(
+        `Subtitle file is empty or could not be parsed for video ${videoId}`,
+        videoId,
+        language
+      );
+    }
+
+    return subtitles;
+  } catch (error: any) {
+    if (error instanceof SubtitleError) {
+      throw error;
+    }
+
+    if (error.code === "ENOENT") {
+      throw new SubtitleError(
+        "yt-dlp command not found. Please install yt-dlp from https://github.com/yt-dlp/yt-dlp#installation",
+        videoId,
+        language
+      );
+    }
+
+    if (error.signal === "SIGTERM" || error.killed) {
+      throw new SubtitleError(
+        `Subtitle download timed out for video ${videoId}`,
+        videoId,
+        language
+      );
+    }
+
+    throw new SubtitleError(
+      `Failed to fetch subtitles for video ${videoId}: ${error.message}`,
+      videoId,
+      language
+    );
+  } finally {
+    // Clean up temp directory
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      console.warn(`Warning: Could not clean up temp directory ${tempDir}`);
+    }
+  }
+}
