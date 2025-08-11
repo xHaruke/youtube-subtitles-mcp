@@ -54,11 +54,13 @@ const getServer = () => {
         .length(11, "Video ID is required")
         .describe("Video ID for the YouTube video e.g 'xvFZjo5PgG0'"),
       lang: z
-        .string()
-        .length(2)
+        .union([
+          z.string().length(2),
+          z.literal(""), // allow empty string
+        ])
         .optional()
         .describe(
-          "ISO 639-1 language codes e.g. en, hi. When left empty, it will use the default language of the video"
+          "ISO 639-1 language codes e.g. en, hi. When left empty or omitted, it will use the default language of the video."
         ),
     },
     {
@@ -157,11 +159,7 @@ app.listen(PORT, (error) => {
 });
 
 async function getSubtitles(videoID: string, lang?: string) {
-  const subtitle = await fetchSubtitles({
-    videoId: videoID,
-    language: lang,
-    cookiesUrl: process.env.COOKIES_URL,
-  });
+  const subtitle = await fetchSubtitles(videoID, lang);
   return subtitle.map((s) => s.text).join(" ");
 }
 

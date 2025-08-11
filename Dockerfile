@@ -11,7 +11,7 @@ RUN apk update && apk add --no-cache \
     ca-certificates
 
 # Install yt-dlp via pip with latest version
-RUN pip3 install --no-cache-dir --upgrade --break-system-packages yt-dlp
+RUN python3 -m pip install --no-cache-dir --upgrade --break-system-packages "yt-dlp[default]"
 
 # Verify yt-dlp installation
 RUN yt-dlp --version

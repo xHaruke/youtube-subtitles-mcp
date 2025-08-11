@@ -3,11 +3,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 async function getSubtitles(videoID: string, lang?: string) {
-  const subtitle = await fetchSubtitles({
-    videoId: videoID,
-    language: lang,
-    cookiesUrl: process.env.COOKIES_URL,
-  });
+  const subtitle = await fetchSubtitles(videoID, lang);
 
   console.log(subtitle);
 
