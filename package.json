@@ -42,8 +42,8 @@
     "subtitles",
     "typescript"
   ],
-  "author": "Aman Sinha",
-  "license": "MIT",
+  "author": "xharuke",
+  "license": "MPL-2.0",
   "description": "MCP server for retrieving YouTube video captions and subtitles",
   "engines": {
     "node": ">=18.0.0"
