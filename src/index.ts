@@ -54,13 +54,13 @@ const getServer = () => {
         .length(11, "Video ID is required")
         .describe("Video ID for the YouTube video e.g 'xvFZjo5PgG0'"),
       lang: z
-        .union([
-          z.string().length(2),
-          z.literal(""), // allow empty string
-        ])
+        .string()
+        .length(2)
+        .or(z.literal("")) // allow empty string
         .optional()
+        .transform((val) => (val === "" ? undefined : val))
         .describe(
-          "ISO 639-1 language codes e.g. en, hi. When left empty or omitted, it will use the default language of the video."
+          "ISO 639-1 language codes e.g. en, hi. Leave empty or omit for default."
         ),
     },
     {
