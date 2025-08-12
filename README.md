@@ -2,7 +2,7 @@
 
 A Model Context Protocol (MCP) server for retrieving YouTube video captions and subtitles. This server provides seamless integration with MCP-compatible clients to fetch and process YouTube video transcripts.
 
-🌐 **Live Server**: [youtube-subtitles-mcp.onrender.com/mcp](https://youtube-subtitles-mcp.onrender.com/mcp)
+🌐 **Live Server**: [youtube-subtitles-mcp.onrender.com/mcp](https://mcp-youtube-subtitles.fly.dev/mcp)
 
 ## Features
 
